@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Welcome to the **Agents** track of the CSOT (CAIC Summer of Technology) 2026! 
+Welcome to the **GenAI/Agentic** track of the CSOT (CAIC Summer of Technology) 2026! 
 
 This vertical is designed to take you from executing basic API requests to building a **fully autonomous, stateful AI coding agent** that operates in your terminal. You will transition from simple single-turn prompts to implementing loops, hand-written tool dispatchers, persistent file-based memory frameworks, and self-verifying execution environments. By the end of this course, you will have built a CLI-native assistant capable of exploring codebases, modifying files, running tests, and debugging itself.
 
