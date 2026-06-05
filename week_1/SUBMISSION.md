@@ -25,6 +25,13 @@ So after a conversation gets too long so I have added a rolling buffer system th
 
 - The model doesnt have any memory about the user but we can built it with proper prompting techniques
 - Token usage adds up fast. A few turns of conversation and you're already at 100+ tokens just for the prompt.
+- How to edit the .env file using nano command
+- How can I keep the context about previous conversation in prompt itself without using any memory.
+- Apart from it I learnt about how to keep my api key safe using env and gitignore
+- I have learnt the format of the API, in order to manipulate the tone of the model.
+- I learnt about how to enable data stream in order to feel the chatbot dynamic
+
+
 
 ## Files
 
