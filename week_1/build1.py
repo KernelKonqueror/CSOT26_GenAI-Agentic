@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    api_key=os.environ["GEMINI_API_KEY"],
 )
 
 def call_model(prompt: str) -> str:
@@ -16,15 +16,15 @@ def call_model(prompt: str) -> str:
     Then return just the assistant's text.
     """
     response = client.chat.completions.create(
-        model="deepseek/deepseek-v4-flash:free",
+        model="gemini-2.5-flash",
         messages=[
             {"role": "user", "content": prompt}
         ],
     )
-    # TODO: try adding a system prompt with different instructions and guidelines
-    # TODO: inspect `response` before you extract anything from it
-    # What's in response.choices? What's in response.usage?
-    pass
+    print("--- Full Response Object ---")
+    print(response)
+    print("----------------------------\n")
+    return response.choices[0].message.content
 
 if __name__ == "__main__":
     print(call_model("What is the capital of Australia?"))
