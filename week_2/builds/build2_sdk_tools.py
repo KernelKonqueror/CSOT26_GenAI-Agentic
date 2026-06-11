@@ -25,15 +25,17 @@ import os
 import json
 from openai import OpenAI
 from dotenv import load_dotenv
+import sys
+import time
 
 load_dotenv()
 
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    api_key=os.environ["GEMINI_API_KEY"],
 )
 
-MODEL = "deepseek/deepseek-v4-flash:free"
+MODEL = "gemini-2.5-flash"
 
 # ---------------------------------------------------------------------------
 # Tool schemas (the contract between you and the model)
@@ -101,8 +103,16 @@ def get_weather(city: str, unit: str = "celsius") -> dict:
     Return a dict like:
         {"city": city, "temperature": 28, "unit": unit, "condition": "partly cloudy"}
     """
-    # TODO: implement (hardcode some reasonable values)
-    pass
+    # Hardcode some reasonable realistic-looking fake weather values depending on the city name
+    city_lower = city.lower()
+    if "tokyo" in city_lower:
+        return {"city": city, "temperature": 18, "unit": unit, "condition": "rainy"}
+    elif "delhi" in city_lower:
+        return {"city": city, "temperature": 35, "unit": unit, "condition": "sunny"}
+    elif "london" in city_lower:
+        return {"city": city, "temperature": 15, "unit": unit, "condition": "cloudy"}
+    else:
+        return {"city": city, "temperature": 22, "unit": unit, "condition": "clear"}
 
 
 def calculate(expression: str) -> dict:
@@ -111,8 +121,21 @@ def calculate(expression: str) -> dict:
     Use eval() with restricted globals so imports and builtins are blocked.
     Return {"result": value} or {"error": message}.
     """
-    # TODO: implement
-    pass
+    safe_global={"__builtins__": None}
+
+    try:
+        # Evaluate the expression with restricted globals and an empty locals dict
+        result = eval(expression, safe_global, {})
+        
+        # Ensure the result is actually a number (int or float)
+        if isinstance(result, (int, float)):
+            return {"result": result}
+        else:
+            return {"error": "Expression did not evaluate to a numeric value."}
+            
+    except Exception as e:
+        # Catch syntax errors, zero division, or attempts to use blocked built-ins
+        return {"error": f"Invalid expression or operation not permitted: {type(e).__name__}"}
 
 
 # ---------------------------------------------------------------------------
@@ -137,8 +160,27 @@ def dispatch(tool_call) -> str:
 
     Note: tool_call.function.arguments is a *string*, not a dict. Parse it first.
     """
-    # TODO: implement
-    pass
+    toolname = tool_call.function.name
+    toolarg = tool_call.function.arguments
+
+    try:
+        arguments = json.loads(toolarg)
+
+        if toolname not in TOOL_REGISTRY:
+            return json.dumps({
+                "error": f"Unknown tool: '{toolname}'"
+            })
+
+        tool_function = TOOL_REGISTRY[toolname]
+        result = tool_function(**arguments)
+
+        return json.dumps(result)
+
+    except Exception as e:
+        # Catch-all for any errors raised inside the tool execution itself
+        return json.dumps({
+            "error": f"An error occurred during execution: {str(e)}"
+        }) 
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +224,26 @@ def run_agent(user_message: str) -> str:
         message = response.choices[0].message
         finish_reason = response.choices[0].finish_reason
 
-        # TODO: handle finish_reason == "tool_calls"
-        # TODO: handle finish_reason == "stop"
-        pass
+        if finish_reason == "stop":
+            return message.content
+
+        if finish_reason == "tool_calls":
+            messages.append(message)
+            for tool_call in message.tool_calls:
+                print(f"Executing tool: {tool_call.function.name}", file=sys.stderr)
+                tool_result_json = dispatch(tool_call)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,  
+                    "name": tool_call.function.name,
+                    "content": tool_result_json
+                })
+            time.sleep(3)
+            continue
+
+        if message.content:
+            return message.content
+        break
 
     return f"[Agent stopped after {MAX_ITERATIONS} iterations without a final answer]"
 

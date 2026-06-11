@@ -36,24 +36,30 @@ Before running, create a file called `sample.txt` with some text in it.
 import os
 import re
 import json
+import sys
 from openai import OpenAI
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    api_key=os.environ["GEMINI_API_KEY"],
 )
 
-MODEL = "deepseek/deepseek-v4-flash:free"
+MODEL = "gemini-2.5-flash"
 
-SYSTEM_PROMPT = """You are a helpful file assistant with access to the following tools:
+SYSTEM_PROMPT = SYSTEM_PROMPT = """You are a helpful file assistant with access to the following tools:
 
 - read_file(path: str): reads a file from disk and returns its content
 - write_file(path: str, content: str): writes content to a file on disk
 
-When you need to use a tool, emit EXACTLY this format and nothing else after it:
+CRITICAL RULE: You MUST use the exact XML format specified below. 
+DO NOT write raw python code. DO NOT wrap code inside <tool_code> tags. 
+You are an agent, you must ONLY emit the JSON object inside <tool_call> tags.
+
+When you need to use a tool, emit EXACTLY this format and nothing else:
 
 <tool_call>
 {"name": "TOOL_NAME", "arguments": {"arg1": "value1"}}
@@ -73,8 +79,16 @@ def read_file(path: str) -> dict:
     Return {"content": ..., "path": ...} on success.
     Return {"error": ...} if the file doesn't exist or can't be read.
     """
-    # TODO: implement using open() in a try/except
-    pass
+    try:
+        with open(path, "r") as file:
+            content = file.read()
+            return {"content": content, "path": path}
+    except FileNotFoundError:
+        return {"error": f"File not found: {path}"}
+    except PermissionError:
+        return {"error": "Permission denied"}
+    except Exception as e:
+        return {"error": f"An error occurred: {str(e)}"}
 
 
 def write_file(path: str, content: str) -> dict:
@@ -84,9 +98,15 @@ def write_file(path: str, content: str) -> dict:
     Return {"error": ...} on failure.
 
     Hint: open(path, 'w') and then f.write(content).
-    """
-    # TODO: implement
-    pass
+     """
+    try:
+        with open(path, "w") as file:
+            bytes_written = file.write(content)
+            return {"success": True, "path": path, "bytes_written": bytes_written}
+    except PermissionError:
+        return {"error": "Permission denied"}
+    except Exception as e:
+        return {"error": f"An error occurred: {str(e)}"}
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +127,14 @@ def parse_tool_call(response_text: str) -> dict | None:
 
     Hint: use re.search() with re.DOTALL to find the block, then json.loads() the body.
     """
+    match=re.search(r'<tool_call>\s*(.*?)\s*</tool_call>',response_text, flags =   re.DOTALL)
+    if not match:
+         return None
+    try:
+         tool_call=json.loads(match.group(1))
+         return tool_call
+    except:
+         return None
     # TODO: implement
     pass
 
@@ -116,6 +144,9 @@ def strip_tool_call(response_text: str) -> str:
     Return the response text with any <tool_call>...</tool_call> block removed.
     Useful for printing the model's prose without the raw tag.
     """
+
+
+    return re.sub(r'<tool_call>.*?</tool_call>' , '' , response_text , flags=re.DOTALL  )
     # TODO: implement (re.sub is your friend)
     pass
 
@@ -139,8 +170,20 @@ def dispatch(name: str, arguments: dict) -> str:
 
     Always return a string (json.dumps the result dict).
     """
+    if name not in TOOL_REGISTRY:
+         return json.dumps({"error" : f"Unkown tool: {name}"})
+
+    tool = TOOL_REGISTRY[name]
+    try :
+         result = tool(**arguments)
+         return json.dumps(result)
+    except Exception as e:
+         return json.dumps({"error" : f'<{e}>'})
+    
+
+
     # TODO: implement
-    pass
+    
 
 
 # ---------------------------------------------------------------------------
@@ -163,21 +206,52 @@ def run_agent(user_message: str) -> str:
 
     The <tool_response> you inject back should look like:
         <tool_response>
-        {"content": "Hello, world!", "path": "sample.txt"}
+        {"content": "Hello, world!",     "path": "sample.txt"}
         </tool_response>
 
     Wrap it in a user message so the model sees it as a continuation:
         {"role": "user", "content": "<tool_response>\n...\n</tool_response>"}
 
     Print a line to stderr each time a tool is called so you can follow the loop.
+
     """
+
+
+#step 1
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_message},
     ]
 
+
     for iteration in range(MAX_ITERATIONS):
         # TODO: call the model, parse the response, dispatch or return
+        response= client.chat.completions.create(
+             model=MODEL,
+             messages=messages,
+             temperature=0.0
+        )
+
+        response_text = response.choices[0].message.content
+
+        # 3. Save the actual string content to your history
+        messages.append({"role": "assistant", "content": response_text})
+
+        # 4. FIX: Pass the 'response_text' string to the parser, NOT the raw 'response' object
+        tool_call = parse_tool_call(response_text)
+
+        if tool_call is None:
+             return strip_tool_call(response_text)
+
+        tool_name=tool_call["name"]
+        tool_args= tool_call["arguments"]
+
+        print(f"--> [Iteration {iteration + 1}] Calling tool: {tool_name} with {tool_args}", file=sys.stderr)
+        tool_result_json=dispatch(tool_name,tool_args)
+        tool_response_text = f"<tool_response>\n{tool_result_json}\n</tool_response>"
+        messages.append({"role" : "user" , "content" : tool_response_text})
+        time.sleep(3)
+
         pass
 
     return f"[Agent stopped after {MAX_ITERATIONS} iterations]"

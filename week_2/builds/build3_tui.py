@@ -24,6 +24,7 @@ while waiting for responses. See Lesson 4 for the pattern.
 """
 
 import os
+import time
 from openai import OpenAI
 from dotenv import load_dotenv
 from textual.app import App, ComposeResult
@@ -34,11 +35,11 @@ from textual.containers import Vertical
 load_dotenv()
 
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    api_key=os.environ["GEMINI_API_KEY"],
 )
 
-MODEL = "deepseek/deepseek-v4-flash:free"
+MODEL = "gemini-2.5-flash"
 MAX_HISTORY_TURNS = 20   # keep last N user+assistant pairs
 
 # ---------------------------------------------------------------------------
@@ -51,7 +52,11 @@ def call_model(messages: list[dict]) -> str:
     This is a blocking call. It must run in a worker thread in the TUI.
     """
     # TODO: implement using client.chat.completions.create()
-    pass
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+    )
+    return response.choices[0].message.content or ""
 
 
 def trim_history(messages: list[dict], max_turns: int) -> list[dict]:
@@ -63,7 +68,12 @@ def trim_history(messages: list[dict], max_turns: int) -> list[dict]:
     A 'pair' is one user message + one assistant message = 2 entries.
     """
     # TODO: implement
-    pass
+    system_message = messages[0]
+    chat_history = messages[1:]
+    max_messages = max_turns * 2
+    if len(chat_history) > max_messages:
+        chat_history = chat_history[-max_messages:]
+    return [system_message] + chat_history
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +84,7 @@ class ChatApp(App):
     """A full-screen terminal chatbot."""
 
     TITLE = "Week 2 Chatbot TUI"
+    SUB_TITLE = f"Model: {MODEL}"
     CSS = """
     Screen {
         layout: vertical;
@@ -94,6 +105,7 @@ class ChatApp(App):
     BINDINGS = [
         Binding("ctrl+l", "clear_display", "Clear display"),
         Binding("ctrl+k", "clear_history", "Clear history"),
+        Binding("ctrl+s", "save_history", "Save chat"),
         Binding("ctrl+q", "quit", "Quit"),
     ]
 
@@ -111,7 +123,7 @@ class ChatApp(App):
 
     def on_mount(self) -> None:
         log = self.query_one("#log", RichLog)
-        log.write("[bold green]Chat started.[/bold green] Ctrl+Q to quit, Ctrl+L to clear.\n")
+        log.write("[bold green]Chat started.[/bold green] Ctrl+Q to quit, Ctrl+L to clear, Ctrl+S to save chat.\n")
         self.query_one(Input).focus()
 
     # -----------------------------------------------------------------------
@@ -133,9 +145,12 @@ class ChatApp(App):
         self.messages.append({"role": "user", "content": user_text})
         self.messages = trim_history(self.messages, MAX_HISTORY_TURNS)
 
+        # Update sub_title to show thinking indicator
+        self.sub_title = "Thinking..."
+
         # Run the API call in a background thread so the UI stays responsive
         # TODO: call self.run_worker(self._get_response(), thread=True)
-        pass
+        self.run_worker(self._get_response(), thread=True)
 
     async def _get_response(self) -> None:
         """
@@ -151,7 +166,21 @@ class ChatApp(App):
         """
         log = self.query_one("#log", RichLog)
         # TODO: implement
-        pass
+        try:
+            reply = call_model(self.messages)
+            self.messages.append({"role": "assistant", "content": reply})
+            self.messages = trim_history(self.messages, MAX_HISTORY_TURNS)
+
+            def update_ui(text):
+                log.write(f"[bold green][Agent][/bold green] {text}\n")
+                self.sub_title = f"Model: {MODEL}"
+            
+            self.call_from_thread(update_ui, reply)
+        except Exception as e:
+            def handle_error(err_msg):
+                log.write(f"[bold red]Error:[/bold red] {err_msg}\n")
+                self.sub_title = f"Model: {MODEL}"
+            self.call_from_thread(handle_error, str(e))
 
     # -----------------------------------------------------------------------
     # Actions (bound to keyboard shortcuts)
@@ -160,14 +189,35 @@ class ChatApp(App):
     def action_clear_display(self) -> None:
         """Clear the visible log without touching conversation history."""
         # TODO: implement
-        pass
+        log = self.query_one("#log", RichLog)
+        log.clear()
 
     def action_clear_history(self) -> None:
         """Reset conversation history and clear the display."""
         # TODO: reset self.messages to just the system message
         # TODO: clear the display
         # TODO: write a "History cleared." notice to the log
-        pass
+        self.messages = [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
+        log = self.query_one("#log", RichLog)
+        log.clear()
+        log.write("[bold green]History cleared. Fresh start.[/bold green]\n")
+
+    def action_save_history(self) -> None:
+        """Save the conversation history to a text file."""
+        try:
+            filename = f"chat_history_{int(time.time())}.txt"
+            with open(filename, "w") as f:
+                for msg in self.messages:
+                    role = msg["role"].upper()
+                    content = msg["content"]
+                    f.write(f"[{role}]: {content}\n\n")
+            log = self.query_one("#log", RichLog)
+            log.write(f"[bold yellow]System:[/bold yellow] Chat history saved to {filename}\n")
+        except Exception as e:
+            log = self.query_one("#log", RichLog)
+            log.write(f"[bold red]Error saving history:[/bold red] {str(e)}\n")
 
 
 # ---------------------------------------------------------------------------
