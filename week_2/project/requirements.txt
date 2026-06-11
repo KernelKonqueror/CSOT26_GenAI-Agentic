@@ -1,6 +1,7 @@
 openai
 python-dotenv
 requests
+httpx
 markdownify
 trafilatura
 textual
