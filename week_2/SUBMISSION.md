@@ -2,42 +2,59 @@
 
 ## What I Built
 
-I built a full-screen terminal-based research assistant named **ResearchBot** (located in `week_2/project/agent.py`) using **Textual** and the OpenAI-compatible SDK (configured to use Gemini or OpenRouter). The bot serves as a custom "Perplexity-like" research engine, allowing users to input complex research questions and watch the agent dynamically search the web, fetch pages, query scientific paper databases, and compile a cited final response.
+A terminal-based research assistant named **ResearchBot** (inside `week_2/project/agent.py`) built using Textual for the TUI and the OpenAI SDK connected to Gemini/OpenRouter. It works like Perplexity where you ask a research query and it automatically searches the web, fetches pages, looks up papers on AlphaXiv, and synthesizes a final cited response.
 
-## How the Agent Loop Works
 
-The core of the application is an asynchronous agent loop (`run_research_agent`):
-1. **Tool Discovery**: Upon startup, the agent establishes a connection to the **AlphaXiv MCP server** over Server-Sent Events (SSE). It lists the tools offered by the MCP server (`discover_papers` and `get_paper_content`), dynamically builds their OpenAI function schemas, merges them with local tools (`web_search` via Serper and `web_fetch`), and compiles the complete tool list.
-2. **Reasoning Loop**: The loop executes for a maximum of 10 iterations. At each turn, it sends the conversation history (system prompt, user messages, and previous tool/response context) to the Gemini model.
-3. **Execution & Dispatch**: If the model emits tool requests:
-   - The loop catches them and routes them: local tools are run immediately; MCP tools are forwarded to the AlphaXiv session.
-   - Events (tool name, parameters, status, and bytes returned) are logged in real-time to the TUI's **Tool Activity Log** panel.
-   - The results are injected back into the message log with the `tool` role, and the loop repeats.
-4. **Final Synthesized Answer**: Once the model returns `finish_reason == "stop"` (or does not request tools), the loop terminates and returning the model's markdown response containing synthesized facts and citations, which is then displayed in the **Chat Log** panel.
+## How It Works
 
-## Key Design Decisions
+The core agent loop runs in `run_research_agent` for a maximum of 10 turns. First, it connects to the AlphaXiv MCP server (uses an API key via SSE if you have one, otherwise it handles OAuth client credentials flow and stores tokens in `.alphaxiv_tokens.json`). It dynamically pulls the MCP tool definitions, blends them with local search tools (`web_search` via Serper and `web_fetch`), and gives them to the model.
 
-- **Two-Panel TUI Layout**: I split the Textual interface into a **Chat Panel** (65% width) and a **Tool Activity Log** (35% width). This prevents cluttering the main conversation with raw tool outputs while providing transparency into what queries the agent is running and what resources it is reading.
-- **Robust Web Fetching with Trafilatura Fallback**: The `web_fetch` tool first attempts to use `trafilatura` to extract only the main article content (filtering out ads, navigation links, and footers). If that fails, it falls back to a generalized `markdownify` parsing and truncates the result to 8,000 characters to prevent token bloat.
-- **Graceful MCP Connection Fallback**: If the AlphaXiv MCP server is unavailable or fails to initialize, the agent catches the error, logs a warning in the tool panel, and seamlessly transitions to a fallback loop (limited to 5 iterations) using only local web search/fetch tools, ensuring the bot remains usable.
-- **Background Worker Threads**: Because API calls and web requests are blocking, the agent loop runs under Textual's worker thread system (`run_worker(..., thread=True)`). Updates to the UI are safely dispatched from the background thread via `self.call_from_thread`.
-- **Keyboard Shortcuts**: In addition to `Ctrl+L` (clear log), `Ctrl+K` (clear history + log), and `Ctrl+Q` (quit), I implemented a custom `Ctrl+S` key binding to export the complete conversation transcript to a timestamped local file (`research_log_<timestamp>.txt`) for future reference.
+At each step, the model either returns a final answer or requests tools. If it wants tools, we execute them (local tools run locally, MCP ones get forwarded to the remote server), log the action in the side panel so the user knows what's happening, append the results to history, and query the model again. Once the model stops calling tools or we hit the 10-turn cap, it stops and prints the markdown response.
 
-## What Surprised Me and Challenges Faced
 
-- **The Power of Model Context Protocol (MCP)**: I was surprised by how clean and standard the MCP interface is. Once connected, listing and invoking tools on a remote server requires no hardcoded schemas or custom HTTP code; it is completely driven by the protocol metadata.
-- **TUI Thread Safety**: Initially, updating the RichLog panel directly from the asynchronous agent worker would trigger race conditions or freeze the Textual event loop. Learning to correctly dispatch UI calls from threads with `call_from_thread` was a key learning curve.
+## Decisions I Made 
 
-## Future Improvements
+- **Two-Panel TUI Layout with `RichLog`**: 
+  - **The Decision**: I split the screen into a main chat panel (65% width) and a tool activity panel (35% width) using Textual's `RichLog` widget.
+  - **Why `RichLog`**: Raw tool outputs (like search results or fetched pages) are extremely large and messy. Placing them in a dedicated `RichLog` widget on the side keeps the main conversation clean while still displaying the agent's step-by-step thinking process.
+  - **Features**: `RichLog` allows for rich markup formatting (e.g., color-coding system messages like `[bold blue]System:[/bold blue]`), automatic text-wrapping, and independent scrolling of logs without cluttering the console.
 
-If given more time, I would:
-1. Implement token-by-token streaming in the RichLog panel using `stream=True`.
-2. Add a persistent research notebook tool (`save_research_note`) allowing the agent to write its compiled findings to markdown files under a dedicated folder.
-3. Enhance the web-fetching tool to parse `llms.txt` of websites before crawling them to find cleaner entry points.
+- **Trafilatura with Fallback & Truncation**: For fetching webpages, I used `trafilatura` because it extracts the main article text and drops ads/headers/footers. If that fails, it falls back to `markdownify`. I also limited the text to 8,000 characters so large pages don't eat up the entire prompt token limit.
 
-## Completed Builds and Files
+- **Graceful MCP Fallback**: If the AlphaXiv MCP server is down or throws an auth error, instead of crashing the program, the code catches the error and runs a fallback loop (limited to 5 turns) using only local web search and fetch tools.
 
-- `builds/build1_custom_tools.py`: Completed custom regex-based `<tool_call>`/`<tool_response>` parser and loop.
-- `builds/build2_sdk_tools.py`: Completed native OpenAI tool calling with `calculate` and `get_weather`.
-- `builds/build3_tui.py`: Completed Textual TUI for a multi-turn chat assistant with key bindings.
-- `project/agent.py`: Fully functional Perplexity-style terminal researcher integrating Serper, Trafilatura, AlphaXiv MCP, and a responsive Textual UI.
+- **Implementation of Multithreading**:
+  - **The Problem**: Web scraping and API calls are network processes that take time. Since Textual runs on the main thread, executing these operations directly would freeze the entire window, preventing the user from scrolling or even exiting the app.
+  - **The Solution**: I implemented multithreading by running the agent loop inside Textual's worker system (`run_worker(..., thread=True)`).
+  - **The Segregation & Safety**:
+    - UI elements (widgets like `RichLog`) are not thread-safe. If a background thread tries to edit a widget directly (e.g., calling `log.write("Searching...")` from a thread), it can cause race conditions, print out-of-order logs, or crash the terminal display.
+    - `self.call_from_thread` acts as a bridge. Instead of the background thread modifying the widget directly, it sends a message/callback to the main UI thread.
+    - main UI thread then safely performs the actual update on the next tick of the event loop, avoiding any threading conflicts.
+
+
+## What I Learned
+
+- **From Build 1 (Custom Tool Parser)**: I learned the raw mechanics of an agent loop by hand-writing XML tags (`<tool_call>`) and regex parsing JSON arguments. It made me realize that agent loop is just a back-and-forth cycle of matching patterns and feeding the output back as a message.
+- **From Build 2 (SDK Tool Calling)**: I saw how much cleaner and more reliable it is to use native OpenAI function schemas. The model is trained to output clean JSON directly, saving us from writing regex wrappers, and handling multiple tools at the same time becomes way easier.
+- **From Build 3 (TUI Chatbot)**: I learned how to build a basic TUI with Textual using widgets like `RichLog` for scrollable text output, and bind custom keyboard shortcuts. Crucially, I learned that blocking API calls will lock the terminal unless run inside `run_worker(thread=True)` and updated via thread-safe callbacks to the UI elements.
+- **From the Main Project**: MCP (Model Context Protocol) is awesome because once connected, you don't need to manually define tool schemas or write HTTP requests for them; it handles the protocol metadata automatically. I also learned how to handle OAuth client credentials.
+
+
+## WSL2 OAuth Challenges & Solutions
+
+While setting up OAuth authentication (e.g., for the AlphaXiv flow) within WSL2, we run into environment-specific network and GUI limitations:
+- **Headless Browser Launch Failure**:
+  - **Issue**: Standard libraries like Python's `webbrowser.open()` try to open native Linux browsers. Since WSL2 runs headlessly without a Linux desktop environment, this fails or hangs.
+  - **Fix**: Implemented a fallback that prints the OAuth link directly to the terminal so the user can copy/paste it. Alternatively, users can install the `wslu` utility package and set `export BROWSER=wslview` in their shell configuration to bridge WSL2 browser commands to the host Windows browser.
+- **Callback Resolution Mismatch (`localhost` routing)**:
+  - **Issue**: The redirect callback routes back to `http://localhost:8765/callback`. The Windows browser sometimes fails to route `localhost` to the separate virtual network interface of the WSL2 VM.
+  - **Fix**: Configure `.wslconfig` on the Windows host to use `networkingMode=mirrored` so Windows and WSL2 share the same loopback interface, or bind the callback listener to `0.0.0.0` and configure an SSH/port forwarding tunnel.
+
+
+## Files
+
+- `builds/build1_custom_tools.py` - Custom XML-tag tool parser (`<tool_call>`) and agent loop.
+- `builds/build2_sdk_tools.py` - Native OpenAI SDK tool calling using functions like `get_weather`.
+- `builds/build3_tui.py` - Basic multi-turn chat UI with Textual using key bindings.
+- `project/agent.py` - The complete Perplexity-like research assistant with Serper, Trafilatura, and AlphaXiv MCP.
+

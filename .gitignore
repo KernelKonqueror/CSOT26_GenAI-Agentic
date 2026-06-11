@@ -4,3 +4,5 @@ __pycache__/
 venv/
 FULL_PLAN.md
 week_2/RUBRIC.md
+.alphaxiv_tokens.json
+*tokens.json

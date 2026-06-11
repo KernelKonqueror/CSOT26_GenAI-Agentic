@@ -20,12 +20,19 @@ import json
 import re
 import asyncio
 import requests
+import httpx
+import webbrowser
+from urllib.parse import parse_qs, urlparse
 from markdownify import markdownify
 import trafilatura
 from openai import OpenAI
 from dotenv import load_dotenv
 from mcp import ClientSession
 from mcp.client.sse import sse_client
+from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from rich.markdown import Markdown
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Header, Footer, Input, RichLog
@@ -181,15 +188,88 @@ def trim_history(messages: list[dict], max_turns: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# AlphaXiv OAuth Helper & Token Storage
+# ---------------------------------------------------------------------------
+
+class FileTokenStorage(TokenStorage):
+    def __init__(self, token_path: str):
+        self.token_path = token_path
+        self.tokens: OAuthToken | None = None
+        self.client_info: OAuthClientInformationFull | None = None
+        if os.path.exists(self.token_path):
+            try:
+                data = json.loads(open(self.token_path).read())
+                if data.get("tokens"):
+                    self.tokens = OAuthToken(**data["tokens"])
+                if data.get("client_info"):
+                    self.client_info = OAuthClientInformationFull(**data["client_info"])
+            except Exception:
+                pass
+
+    def _save(self):
+        data = {}
+        if self.tokens:
+            data["tokens"] = self.tokens.model_dump(mode="json")
+        if self.client_info:
+            data["client_info"] = self.client_info.model_dump(mode="json")
+        open(self.token_path, "w").write(json.dumps(data, indent=2))
+
+    async def get_tokens(self) -> OAuthToken | None:
+        return self.tokens
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        self.tokens = tokens
+        self._save()
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        return self.client_info
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        self.client_info = client_info
+        self._save()
+
+
+async def open_browser(auth_url: str) -> None:
+    print(f"Opening browser for login...\nIf it doesn't open: {auth_url}\n")
+    webbrowser.open(auth_url)
+
+
+async def wait_for_callback() -> tuple[str, str | None]:
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    code = state = None
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            nonlocal code, state
+            params = parse_qs(urlparse(self.path).query)
+            code = params.get("code", [None])[0]
+            state = params.get("state", [None])[0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<h1>Authorized. You can close this tab.</h1>")
+
+        def log_message(self, *args):
+            pass
+
+    print("Waiting for callback on http://localhost:8765/callback ...")
+    server = HTTPServer(("localhost", 8765), Handler)
+    server.timeout = 120
+    server.handle_request()
+    server.server_close()
+
+    if not code:
+        raise RuntimeError("OAuth callback received no authorization code.")
+    return code, state
+
+
+# ---------------------------------------------------------------------------
 # Research Agent Loop
 # ---------------------------------------------------------------------------
 
 async def run_research_agent(user_message: str, history: list[dict], log_callback=None) -> str:
     """Run the main agent reasoning/action loop with tool call capabilities."""
-    headers = {}
-    if os.environ.get("ALPHAXIV_API_KEY"):
-        headers["Authorization"] = f"Bearer {os.environ['ALPHAXIV_API_KEY']}"
-        
     mcp_url = "https://api.alphaxiv.org/mcp/v1"
     
     messages = history.copy()
@@ -207,8 +287,38 @@ async def run_research_agent(user_message: str, history: list[dict], log_callbac
     if log_callback:
         log_callback("[bold blue]System:[/bold blue] Connecting to AlphaXiv MCP server...")
 
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    token_path = os.path.join(script_dir, ".alphaxiv_tokens.json")
+    storage = FileTokenStorage(token_path)
+    api_key = os.environ.get("ALPHAXIV_API_KEY")
+
     try:
-        async with sse_client(mcp_url, headers=headers) as (read, write):
+        if api_key:
+            headers = {"Authorization": f"Bearer {api_key}"}
+            mcp_connect = sse_client(mcp_url, headers=headers)
+        else:
+            auth = OAuthClientProvider(
+                server_url=mcp_url,
+                client_metadata=OAuthClientMetadata(
+                    client_name="AlphaXiv Search CLI",
+                    redirect_uris=["http://localhost:8765/callback"],
+                    grant_types=["authorization_code", "refresh_token"],
+                    response_types=["code"],
+                    scope="read",
+                ),
+                storage=storage,
+                redirect_handler=open_browser,
+                callback_handler=wait_for_callback,
+            )
+            http_client = httpx.AsyncClient(auth=auth, follow_redirects=True, timeout=60)
+            mcp_connect = streamable_http_client(mcp_url, http_client=http_client)
+
+        async with mcp_connect as transport:
+            if api_key:
+                read, write = transport
+            else:
+                read, write, _ = transport
+
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 if log_callback:
@@ -366,17 +476,61 @@ class ResearchApp(App):
         padding: 0 1;
     }
 
-    Input {
+    #query-input {
         dock: bottom;
         height: 3;
     }
+
+    CommandPalette {
+        background: rgba(0, 0, 0, 0.85);
+        align: center middle;
+    }
+
+    CommandInput {
+        background: #1e1e1e;
+        color: white;
+        border: tall $primary;
+    }
+
+    CommandList {
+        background: #1e1e1e;
+        color: white;
+        border: solid $primary;
+    }
+
+    CommandList > .option-list--option {
+        color: white;
+    }
+
+    CommandList > .option-list--option-highlighted {
+        background: $primary;
+        color: white;
+        text-style: bold;
+    }
+
+    CommandList > .option-list--option-hover {
+        background: #333;
+        color: white;
+    }
+
+    .command-palette--help-text {
+        color: #888888;
+    }
+
+    .command-palette--highlight {
+        color: #ff00ff;
+        text-style: bold;
+    }
     """
+
+    COMMAND_PALETTE_BINDING = "ctrl+p"
 
     BINDINGS = [
         Binding("ctrl+l", "clear_display", "Clear display"),
         Binding("ctrl+k", "clear_history", "Clear history"),
         Binding("ctrl+s", "save_history", "Save chat"),
         Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+p", "command_palette", "Command Palette"),
     ]
 
     def __init__(self):
@@ -397,7 +551,7 @@ class ResearchApp(App):
         with Horizontal():
             yield RichLog(id="chat-panel", wrap=True, markup=True, highlight=True)
             yield RichLog(id="tool-panel", wrap=True, markup=True, highlight=True)
-        yield Input(placeholder="Ask a research question...")
+        yield Input(placeholder="Ask a research question...", id="query-input")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -410,7 +564,7 @@ class ResearchApp(App):
         tool_log.write("[bold yellow]Tool Activity Log[/bold yellow]\n")
         tool_log.write("[dim]System notifications and tool invocations will appear here...[/dim]\n\n")
         
-        self.query_one(Input).focus()
+        self.query_one("#query-input").focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Called when the user submits input."""
@@ -429,7 +583,7 @@ class ResearchApp(App):
         # Run the agent loop in a background thread so TUI doesn't freeze
         self.run_worker(self._run_agent_task(user_text), thread=True)
 
-    def _run_agent_task(self, query: str) -> None:
+    async def _run_agent_task(self, query: str) -> None:
         chat_log = self.query_one("#chat-panel", RichLog)
         tool_log = self.query_one("#tool-panel", RichLog)
 
@@ -437,8 +591,8 @@ class ResearchApp(App):
             self.call_from_thread(tool_log.write, msg)
 
         try:
-            # Run the async agent loop inside the thread using asyncio.run
-            reply = asyncio.run(run_research_agent(query, self.messages, log_callback))
+            # Run the async agent loop
+            reply = await run_research_agent(query, self.messages, log_callback)
             
             # Save the query/reply in message history
             self.messages.append({"role": "user", "content": query})
@@ -446,7 +600,9 @@ class ResearchApp(App):
             self.messages = trim_history(self.messages, 20)
 
             def update_ui(bot_reply):
-                chat_log.write(f"[bold green][Agent][/bold green] {bot_reply}\n\n")
+                chat_log.write("[bold green][Agent][/bold green]")
+                chat_log.write(Markdown(bot_reply))
+                chat_log.write("\n")
                 self.sub_title = f"Model: {MODEL}"
 
             self.call_from_thread(update_ui, reply)
