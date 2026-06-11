@@ -46,3 +46,19 @@ Focus on:
 * Managing the stateless nature of LLM APIs by building manual, role-assigned conversation history from scratch.
 
 ✅ *Deliverable*: A terminal chatbot that holds a coherent multi-turn conversation, with the API key loaded from the environment and never touching the source code.
+
+---
+
+### Week 2: Tools, Agents, and TUIs
+
+The heart of the course. A tool is a contract between your code and the model. An agent is a loop around tool calls. Once you see it, you can't unsee it.
+
+Focus on:
+
+* Implementing tool calling from scratch using a custom text format — so the SDK abstraction is never magic.
+* Using the OpenAI SDK's native function calling: tool schemas, the `tool_calls` response field, and the full round-trip.
+* Building web tools: fetching and cleaning pages with `requests`, searching the web with Serper, and understanding `llms.txt`.
+* Connecting an online MCP server (AlphaXiv) to an OpenAI SDK agent loop, so the agent can search and read academic papers.
+* Wrapping everything in a full-screen terminal UI with Textual.
+
+✅ *Deliverable*: **Build your own Perplexity** — a TUI research agent that chains web search, page fetching, and academic paper search (via AlphaXiv MCP) to answer research questions it couldn't answer alone.
