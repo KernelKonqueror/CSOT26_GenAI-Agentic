@@ -41,25 +41,78 @@ from textual.containers import Horizontal, Vertical
 load_dotenv()
 
 # Check which API key is available and configure client
+openrouter_client = None
+gemini_client = None
+
 if os.environ.get("OPENROUTER_API_KEY"):
-    client = OpenAI(
+    openrouter_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.environ["OPENROUTER_API_KEY"],
     )
-    MODEL = "google/gemini-2.5-flash"
-else:
-    client = OpenAI(
+
+if os.environ.get("GEMINI_API_KEY"):
+    gemini_client = OpenAI(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        api_key=os.environ.get("GEMINI_API_KEY", ""),
+        api_key=os.environ["GEMINI_API_KEY"],
     )
+
+if not openrouter_client and not gemini_client:
+    print("ERROR: No API key found. Set OPENROUTER_API_KEY or GEMINI_API_KEY in your .env file.")
+    sys.exit(1)
+
+# Default values for TUI
+if openrouter_client:
+    MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+    PROVIDER = "OpenRouter"
+else:
     MODEL = "gemini-2.5-flash"
+    PROVIDER = "Gemini (native)"
+
+
+def call_chat_completion(messages, tools=None, log_callback=None):
+    global MODEL, PROVIDER
+    
+    # Try OpenRouter first if configured
+    if openrouter_client:
+        try:
+            model_name = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+            response = openrouter_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                tools=tools,
+            )
+            MODEL = model_name
+            PROVIDER = "OpenRouter"
+            return response
+        except Exception as e:
+            if gemini_client:
+                if log_callback:
+                    log_callback(f"[bold yellow]Warning:[/bold yellow] OpenRouter call failed: {e}. Falling back to Gemini...")
+                MODEL = "gemini-2.5-flash"
+                PROVIDER = "Gemini (native)"
+                return gemini_client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    tools=tools,
+                )
+            else:
+                raise e
+    
+    # Otherwise use Gemini
+    if gemini_client:
+        MODEL = "gemini-2.5-flash"
+        PROVIDER = "Gemini (native)"
+        return gemini_client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+        )
+    
+    raise RuntimeError("No configured API clients available.")
 
 
 def call_model(prompt: str) -> str:
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    response = call_chat_completion([{"role": "user", "content": prompt}])
     return response.choices[0].message.content
 
 
@@ -229,35 +282,130 @@ class FileTokenStorage(TokenStorage):
         self._save()
 
 
+EXPECTED_STATE = None
+
+
+def is_wsl() -> bool:
+    try:
+        with open("/proc/version", "r") as f:
+            content = f.read().lower()
+            return "microsoft" in content or "wsl" in content
+    except Exception:
+        return False
+
+
+def is_wsl_interop_working() -> bool:
+    import shutil
+    import subprocess
+    if not shutil.which("cmd.exe"):
+        return False
+    try:
+        res = subprocess.run(["cmd.exe", "/c", "exit"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
 async def open_browser(auth_url: str) -> None:
-    print(f"Opening browser for login...\nIf it doesn't open: {auth_url}\n")
-    webbrowser.open(auth_url)
+    global EXPECTED_STATE
+    try:
+        parsed = urlparse(auth_url)
+        params = parse_qs(parsed.query)
+        EXPECTED_STATE = params.get("state", [None])[0]
+    except Exception:
+        pass
+    print(f"Opening browser for login...\nIf it doesn't open, copy and paste this URL into your browser:\n{auth_url}\n")
+    
+    if is_wsl():
+        if is_wsl_interop_working():
+            try:
+                import subprocess
+                subprocess.Popen(["cmd.exe", "/c", "start", "", auth_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        else:
+            print("Note: WSL Windows interoperability is disabled. Please copy the link above manually.")
+    elif os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        try:
+            webbrowser.open(auth_url)
+        except Exception:
+            pass
 
 
 async def wait_for_callback() -> tuple[str, str | None]:
+    import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    code = state = None
+    code = None
+    state = None
+    event = asyncio.Event()
+    loop = asyncio.get_running_loop()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             nonlocal code, state
-            params = parse_qs(urlparse(self.path).query)
-            code = params.get("code", [None])[0]
-            state = params.get("state", [None])[0]
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            self.wfile.write(b"<h1>Authorized. You can close this tab.</h1>")
+            parsed_url = urlparse(self.path)
+            if parsed_url.path == "/callback":
+                params = parse_qs(parsed_url.query)
+                code = params.get("code", [None])[0]
+                state = params.get("state", [None])[0]
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<h1>Authorized. You can close this tab.</h1>")
+                loop.call_soon_threadsafe(event.set)
+            else:
+                self.send_response(404)
+                self.end_headers()
 
         def log_message(self, *args):
             pass
 
-    print("Waiting for callback on http://localhost:8765/callback ...")
+    # Start the HTTP server on a separate thread to avoid blocking the event loop
     server = HTTPServer(("localhost", 8765), Handler)
-    server.timeout = 120
-    server.handle_request()
-    server.server_close()
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    print("Waiting for callback on http://localhost:8765/callback ...")
+    print("If you are on a remote server/headless environment, please authorize using the link above,")
+    print("then copy the redirect URL (starting with http://localhost:8765/callback) or the code, and paste it here:")
+
+    async def get_user_input():
+        try:
+            user_input = await asyncio.to_thread(input, "Enter code or redirect URL: ")
+            user_input = user_input.strip()
+            if not user_input:
+                return
+            
+            parsed = urlparse(user_input)
+            params = parse_qs(parsed.query) if parsed.query else parse_qs(parsed.path)
+            
+            nonlocal code, state
+            parsed_code = params.get("code", [None])[0]
+            parsed_state = params.get("state", [None])[0]
+            
+            if parsed_code:
+                code = parsed_code
+                state = parsed_state or EXPECTED_STATE
+            else:
+                code = user_input
+                state = EXPECTED_STATE
+            
+            loop.call_soon_threadsafe(event.set)
+        except Exception:
+            pass
+
+    input_task = asyncio.create_task(get_user_input())
+
+    try:
+        await asyncio.wait_for(event.wait(), timeout=120)
+    except asyncio.TimeoutError:
+        print("\nLogin timeout exceeded.")
+    finally:
+        server.shutdown()
+        server.server_close()
+        input_task.cancel()
 
     if not code:
         raise RuntimeError("OAuth callback received no authorization code.")
@@ -347,16 +495,16 @@ async def run_research_agent(user_message: str, history: list[dict], log_callbac
                     if log_callback:
                         log_callback(f"[bold yellow]System:[/bold yellow] Querying model (iteration {iteration + 1})...")
 
-                    response = client.chat.completions.create(
-                        model=MODEL,
+                    response = call_chat_completion(
                         messages=messages,
                         tools=openai_tools,
+                        log_callback=log_callback,
                     )
                     
                     message = response.choices[0].message
                     finish_reason = response.choices[0].finish_reason
 
-                    if finish_reason == "stop" or not message.tool_calls:
+                    if not message.tool_calls:
                         if log_callback:
                             log_callback("[bold green]System:[/bold green] Model finished reasoning.")
                         return message.content or ""
@@ -405,15 +553,15 @@ async def run_research_agent(user_message: str, history: list[dict], log_callbac
         
         MAX_FALLBACK_ITERATIONS = 5
         for iteration in range(MAX_FALLBACK_ITERATIONS):
-            response = client.chat.completions.create(
-                model=MODEL,
+            response = call_chat_completion(
                 messages=messages,
                 tools=LOCAL_TOOLS,
+                log_callback=log_callback,
             )
             message = response.choices[0].message
             finish_reason = response.choices[0].finish_reason
 
-            if finish_reason == "stop" or not message.tool_calls:
+            if not message.tool_calls:
                 return message.content or ""
 
             messages.append(message)
@@ -655,5 +803,31 @@ class ResearchApp(App):
 
 
 if __name__ == "__main__":
-    # If standard run, start the TUI App
+    import subprocess
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    token_path = os.path.join(script_dir, ".alphaxiv_tokens.json")
+
+    # If no API key is set, check if we have saved OAuth tokens
+    if not os.environ.get("ALPHAXIV_API_KEY"):
+        has_tokens = False
+        if os.path.exists(token_path):
+            try:
+                with open(token_path) as f:
+                    data = json.load(f)
+                    if data.get("tokens"):
+                        has_tokens = True
+            except Exception:
+                pass
+        
+        if not has_tokens:
+            print("No saved login found for AlphaXiv. Launching login CLI first...")
+            cli_path = os.path.join(script_dir, "alphaxiv_search_cli.py")
+            try:
+                # Run the search CLI with a query to trigger OAuth login flow in terminal
+                subprocess.run([sys.executable, cli_path, "attention", "--limit", "1"], check=True)
+            except Exception as e:
+                print(f"Failed to complete OAuth login via search CLI: {e}")
+                sys.exit(1)
+
+    # Start the TUI App
     ResearchApp().run()

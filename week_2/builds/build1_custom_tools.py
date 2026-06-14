@@ -43,12 +43,62 @@ import time
 
 load_dotenv()
 
-client = OpenAI(
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    api_key=os.environ["GEMINI_API_KEY"],
-)
+openrouter_client = None
+gemini_client = None
 
-MODEL = "gemini-2.5-flash"
+if os.environ.get("OPENROUTER_API_KEY"):
+    openrouter_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
+
+if os.environ.get("GEMINI_API_KEY"):
+    gemini_client = OpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=os.environ["GEMINI_API_KEY"],
+    )
+
+if not openrouter_client and not gemini_client:
+    print("ERROR: No API key found. Set OPENROUTER_API_KEY or GEMINI_API_KEY in your .env file.")
+    sys.exit(1)
+
+if openrouter_client:
+    MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+else:
+    MODEL = "gemini-2.5-flash"
+
+
+def call_chat_completion(messages, temperature=0.0):
+    global MODEL
+    if openrouter_client:
+        try:
+            model_name = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+            response = openrouter_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+            )
+            MODEL = model_name
+            return response
+        except Exception as e:
+            if gemini_client:
+                print(f"Warning: OpenRouter call failed: {e}. Falling back to Gemini...", file=sys.stderr)
+                MODEL = "gemini-2.5-flash"
+                return gemini_client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    temperature=temperature,
+                )
+            else:
+                raise e
+    if gemini_client:
+        MODEL = "gemini-2.5-flash"
+        return gemini_client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            temperature=temperature,
+        )
+    raise RuntimeError("No configured API clients available.")
 
 SYSTEM_PROMPT = SYSTEM_PROMPT = """You are a helpful file assistant with access to the following tools:
 
@@ -226,8 +276,7 @@ def run_agent(user_message: str) -> str:
 
     for iteration in range(MAX_ITERATIONS):
         # TODO: call the model, parse the response, dispatch or return
-        response= client.chat.completions.create(
-             model=MODEL,
+        response = call_chat_completion(
              messages=messages,
              temperature=0.0
         )

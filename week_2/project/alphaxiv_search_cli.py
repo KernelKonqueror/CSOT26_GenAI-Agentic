@@ -73,38 +73,136 @@ class FileTokenStorage(TokenStorage):
 # The MCP SDK calls redirect_handler with the auth URL, then callback_handler
 # once the user has authorized and the browser is redirected to localhost.
 
+EXPECTED_STATE = None
+
+
+def is_wsl() -> bool:
+    try:
+        with open("/proc/version", "r") as f:
+            content = f.read().lower()
+            return "microsoft" in content or "wsl" in content
+    except Exception:
+        return False
+
+
+def is_wsl_interop_working() -> bool:
+    import shutil
+    import subprocess
+    if not shutil.which("cmd.exe"):
+        return False
+    try:
+        res = subprocess.run(["cmd.exe", "/c", "exit"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
 async def open_browser(auth_url: str) -> None:
-    print(f"Opening browser for login...\nIf it doesn't open: {auth_url}\n")
-    webbrowser.open(auth_url)
+    global EXPECTED_STATE
+    try:
+        parsed = urlparse(auth_url)
+        params = parse_qs(parsed.query)
+        EXPECTED_STATE = params.get("state", [None])[0]
+    except Exception:
+        pass
+    print(f"Opening browser for login...\nIf it doesn't open, copy and paste this URL into your browser:\n{auth_url}\n")
+    
+    if is_wsl():
+        if is_wsl_interop_working():
+            try:
+                import subprocess
+                subprocess.Popen(["cmd.exe", "/c", "start", "", auth_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        else:
+            print("Note: WSL Windows interoperability is disabled. Please copy the link above manually.")
+    elif os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        try:
+            webbrowser.open(auth_url)
+        except Exception:
+            pass
 
 
 async def wait_for_callback() -> tuple[str, str | None]:
+    import threading
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    code = state = None
+    code = None
+    state = None
+    event = asyncio.Event()
+    loop = asyncio.get_running_loop()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             nonlocal code, state
-            params = parse_qs(urlparse(self.path).query)
-            code = params.get("code", [None])[0]
-            state = params.get("state", [None])[0]
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            self.wfile.write(b"<h1>Authorized. You can close this tab.</h1>")
+            parsed_url = urlparse(self.path)
+            if parsed_url.path == "/callback":
+                params = parse_qs(parsed_url.query)
+                code = params.get("code", [None])[0]
+                state = params.get("state", [None])[0]
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<h1>Authorized. You can close this tab.</h1>")
+                loop.call_soon_threadsafe(event.set)
+            else:
+                self.send_response(404)
+                self.end_headers()
 
         def log_message(self, *args):
             pass  # silence request logs
 
-    print(f"Waiting for callback on {REDIRECT_URI} ...")
+    # Start the HTTP server on a separate thread to avoid blocking the event loop
     server = HTTPServer(("localhost", 8765), Handler)
-    server.timeout = 120
-    server.handle_request()
-    server.server_close()
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    print(f"Waiting for callback on {REDIRECT_URI} ...")
+    print("If you are on a remote server/headless environment, please authorize using the link above,")
+    print("then copy the redirect URL (starting with http://localhost:8765/callback) or the code, and paste it here:")
+
+    async def get_user_input():
+        try:
+            user_input = await asyncio.to_thread(input, "Enter code or redirect URL: ")
+            user_input = user_input.strip()
+            if not user_input:
+                return
+            
+            parsed = urlparse(user_input)
+            params = parse_qs(parsed.query) if parsed.query else parse_qs(parsed.path)
+            
+            nonlocal code, state
+            parsed_code = params.get("code", [None])[0]
+            parsed_state = params.get("state", [None])[0]
+            
+            if parsed_code:
+                code = parsed_code
+                state = parsed_state or EXPECTED_STATE
+            else:
+                # Fallback: treat the entire input as the raw code
+                code = user_input
+                state = EXPECTED_STATE
+            
+            loop.call_soon_threadsafe(event.set)
+        except Exception:
+            pass
+
+    input_task = asyncio.create_task(get_user_input())
+
+    try:
+        # Wait up to 120 seconds for login to complete
+        await asyncio.wait_for(event.wait(), timeout=120)
+    except asyncio.TimeoutError:
+        print("\nLogin timeout exceeded.")
+    finally:
+        server.shutdown()
+        server.server_close()
+        input_task.cancel()
 
     if not code:
         raise RuntimeError("OAuth callback received no authorization code.")
+    
     return code, state
 
 

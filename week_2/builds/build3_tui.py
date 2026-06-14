@@ -34,12 +34,66 @@ from textual.containers import Vertical
 
 load_dotenv()
 
-client = OpenAI(
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    api_key=os.environ["GEMINI_API_KEY"],
-)
+openrouter_client = None
+gemini_client = None
 
-MODEL = "gemini-2.5-flash"
+if os.environ.get("OPENROUTER_API_KEY"):
+    openrouter_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
+
+if os.environ.get("GEMINI_API_KEY"):
+    gemini_client = OpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=os.environ["GEMINI_API_KEY"],
+    )
+
+if not openrouter_client and not gemini_client:
+    import sys
+    print("ERROR: No API key found. Set OPENROUTER_API_KEY or GEMINI_API_KEY in your .env file.")
+    sys.exit(1)
+
+if openrouter_client:
+    MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+    PROVIDER = "OpenRouter"
+else:
+    MODEL = "gemini-2.5-flash"
+    PROVIDER = "Gemini (native)"
+
+
+def call_chat_completion(messages):
+    global MODEL, PROVIDER
+    if openrouter_client:
+        try:
+            model_name = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+            response = openrouter_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+            )
+            MODEL = model_name
+            PROVIDER = "OpenRouter"
+            return response
+        except Exception as e:
+            if gemini_client:
+                import sys
+                print(f"Warning: OpenRouter call failed: {e}. Falling back to Gemini...", file=sys.stderr)
+                MODEL = "gemini-2.5-flash"
+                PROVIDER = "Gemini (native)"
+                return gemini_client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                )
+            else:
+                raise e
+    if gemini_client:
+        MODEL = "gemini-2.5-flash"
+        PROVIDER = "Gemini (native)"
+        return gemini_client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+        )
+    raise RuntimeError("No configured API clients available.")
 MAX_HISTORY_TURNS = 20   # keep last N user+assistant pairs
 
 # ---------------------------------------------------------------------------
@@ -52,8 +106,7 @@ def call_model(messages: list[dict]) -> str:
     This is a blocking call. It must run in a worker thread in the TUI.
     """
     # TODO: implement using client.chat.completions.create()
-    response = client.chat.completions.create(
-        model=MODEL,
+    response = call_chat_completion(
         messages=messages,
     )
     return response.choices[0].message.content or ""

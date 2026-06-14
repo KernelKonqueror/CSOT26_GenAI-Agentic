@@ -30,12 +30,62 @@ import time
 
 load_dotenv()
 
-client = OpenAI(
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    api_key=os.environ["GEMINI_API_KEY"],
-)
+openrouter_client = None
+gemini_client = None
 
-MODEL = "gemini-2.5-flash"
+if os.environ.get("OPENROUTER_API_KEY"):
+    openrouter_client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
+
+if os.environ.get("GEMINI_API_KEY"):
+    gemini_client = OpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=os.environ["GEMINI_API_KEY"],
+    )
+
+if not openrouter_client and not gemini_client:
+    print("ERROR: No API key found. Set OPENROUTER_API_KEY or GEMINI_API_KEY in your .env file.")
+    sys.exit(1)
+
+if openrouter_client:
+    MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+else:
+    MODEL = "gemini-2.5-flash"
+
+
+def call_chat_completion(messages, tools=None):
+    global MODEL
+    if openrouter_client:
+        try:
+            model_name = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+            response = openrouter_client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                tools=tools,
+            )
+            MODEL = model_name
+            return response
+        except Exception as e:
+            if gemini_client:
+                print(f"Warning: OpenRouter call failed: {e}. Falling back to Gemini...", file=sys.stderr)
+                MODEL = "gemini-2.5-flash"
+                return gemini_client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    tools=tools,
+                )
+            else:
+                raise e
+    if gemini_client:
+        MODEL = "gemini-2.5-flash"
+        return gemini_client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=tools,
+        )
+    raise RuntimeError("No configured API clients available.")
 
 # ---------------------------------------------------------------------------
 # Tool schemas (the contract between you and the model)
@@ -216,18 +266,16 @@ def run_agent(user_message: str) -> str:
     ]
 
     for _ in range(MAX_ITERATIONS):
-        response = client.chat.completions.create(
-            model=MODEL,
+        response = call_chat_completion(
             messages=messages,
             tools=TOOLS,
         )
         message = response.choices[0].message
-        finish_reason = response.choices[0].finish_reason
 
-        if finish_reason == "stop":
-            return message.content
+        if not message.tool_calls:
+            return message.content or ""
 
-        if finish_reason == "tool_calls":
+        if message.tool_calls:
             messages.append(message)
             for tool_call in message.tool_calls:
                 print(f"Executing tool: {tool_call.function.name}", file=sys.stderr)
