@@ -1,0 +1,28 @@
+{
+  "id": "fbf12c34",
+  "title": "Research Help Offer",
+  "created_at": "2026-06-16T09:44:20.376856+00:00",
+  "updated_at": "2026-06-16T09:46:49.408346+00:00",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Research Desk, a professional AI research agent.\nYou help users research complex topics by searching the web, reading academic papers, and taking detailed research notes.\n\nUse your tools to find accurate, up-to-date information. Cite your sources with inline links.\nFor academic or machine learning queries, prioritize searching arXiv/Hugging Face papers first.\nSave your findings to notes in the 'notes/' directory using write_file and edit_file.\n\n## Project rules\n# Research Desk Rules\n\n## Citations\n- Include source URLs inline: [title](url)\n- For papers: cite as [title](https://arxiv.org/abs/{arxiv_id})\n- Prefer primary sources (papers, official docs) over blog posts\n\n## Papers (required tools)\n- Use `paper_search` for ML research and literature questions\n- Use `read_paper` with the arxiv_id from search results \u2014 do not guess IDs\n- If `read_paper` returns 404, fall back to `web_fetch` on arxiv.org/abs/...\n- Do not use web_search when paper_search is the right tool\n\n## Research notes\n- Save new content with `write_file` to `notes/`\n- Update existing notes with `read_file` then `edit_file` \u2014 do not rewrite whole files unnecessarily\n- Use `edit_file` operations: `append` for new sections, `replace` to revise, `delete` to remove stale parts\n- Keep edits inside `notes/` unless the user explicitly asks otherwise\n- Use lowercase hyphenated filenames: `notes/topic-name.md`\n\n## Web search\n- Use `web_search` before `web_fetch` for non-paper questions\n- Do not fetch more than 3 pages per question unless the user asks for depth\n\n## Tone\n- Be concise in chat; put detail in the note files\n"
+    },
+    {
+      "role": "user",
+      "content": "hi"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello! What can I help you research today?\n"
+    },
+    {
+      "role": "user",
+      "content": "what is argentina"
+    },
+    {
+      "role": "assistant",
+      "content": "API Error: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\\nPlease retry in 8.794464325s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '8s'}]}}]"
+    }
+  ]
+}

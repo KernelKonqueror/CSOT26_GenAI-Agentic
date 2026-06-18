@@ -1,0 +1,115 @@
+{
+  "id": "e32c5ef5",
+  "title": "Untitled",
+  "created_at": "2026-06-18T10:03:43.654577+00:00",
+  "updated_at": "2026-06-18T10:04:33.731975+00:00",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Research Desk, a professional AI research agent.\nYou help users research complex topics by searching the web, reading academic papers, and taking detailed research notes.\n\nUse your tools to find accurate, up-to-date information. Cite your sources with inline links.\nFor academic or machine learning queries, prioritize searching arXiv/Hugging Face papers first.\nSave your findings to notes in the 'notes/' directory using write_file and edit_file.\n\n## Project rules\n# Research Desk Rules\n\n## Citations\n- Include source URLs inline: [title](url)\n- For papers: cite as [title](https://arxiv.org/abs/{arxiv_id})\n- Prefer primary sources (papers, official docs) over blog posts\n\n## Papers (required tools)\n- Use `paper_search` for ML research and literature questions\n- Use `read_paper` with the arxiv_id from search results \u2014 do not guess IDs\n- If `read_paper` returns 404, fall back to `web_fetch` on arxiv.org/abs/...\n- Do not use web_search when paper_search is the right tool\n\n## Research notes\n- Save new content with `write_file` to `notes/`\n- Update existing notes with `read_file` then `edit_file` \u2014 do not rewrite whole files unnecessarily\n- Use `edit_file` operations: `append` for new sections, `replace` to revise, `delete` to remove stale parts\n- Keep edits inside `notes/` unless the user explicitly asks otherwise\n- Use lowercase hyphenated filenames: `notes/topic-name.md`\n\n## Web search\n- Use `web_search` before `web_fetch` for non-paper questions\n- Do not fetch more than 3 pages per question unless the user asks for depth\n\n## Tone\n- Be concise in chat; put detail in the note files\n"
+    },
+    {
+      "role": "user",
+      "content": "hi research about agent paralaleism"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "function-call-1764975093771199475",
+          "type": "function",
+          "function": {
+            "name": "paper_search",
+            "arguments": "{\"query\":\"agent parallelism\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "function-call-1764975093771199475",
+      "name": "paper_search",
+      "content": "{\"papers\": [{\"arxiv_id\": \"2604.04247\", \"title\": \"Combee: Scaling Prompt Learning for Self-Improving Language Model Agents\", \"abstract\": \"Recent advances in prompt learning allow large language model agents to acquire task-relevant knowledge from inference-time context without parameter changes. For example, existing methods (like ACE or GEPA) can learn system prompts to improve accuracy based on previous agent runs. However, these methods primarily focus on single-agent or low-parallelism settings. This fundamentally limits their ability to efficiently learn from a large set of collected agentic traces. It would be efficient and beneficial to run prompt learning in parallel to accommodate the growing trend of learning from many agentic traces or parallel agent executions. Yet without a principled strategy for scaling, current methods suffer from quality degradation with high parallelism. To improve both the efficiency and quality of prompt learning, we propose Combee, a novel framework to scale parallel prompt learning for self-improving agents. Combee speeds up learning and enables running many agents in parallel while learning from their aggregate traces without quality degradation. To achieve this, Combee leverages parallel scans and employs an augmented shuffle mechanism; Combee also introduces a dynamic batch size controller to balance quality and delay. Evaluations on AppWorld, Terminal-Bench, Formula, and FiNER demonstrate that Combee achieves up to 17x speedup over previous methods with comparable or better accuracy and equivalent cost.\", \"url\": \"https://arxiv.org/abs/2604.04247\"}, {\"arxiv_id\": \"2511.11373\", \"title\": \"MarsRL: Advancing Multi-Agent Reasoning System via Reinforcement Learning with Agentic Pipeline Parallelism\", \"abstract\": \"Recent progress in large language models (LLMs) has been propelled by reinforcement learning with verifiable rewards (RLVR) and test-time scaling. However, the limited output length of LLMs constrains the depth of reasoning attainable in a single inference process. Multi-agent reasoning systems offer a promising alternative by employing multiple agents including Solver, Verifier, and Corrector, to iteratively refine solutions. While effective in closed-source models like Gemini 2.5 Pro, they struggle to generalize to open-source models due to insufficient critic and correction capabilities. To address this, we propose MarsRL, a novel reinforcement learning framework with agentic pipeline parallelism, designed to jointly optimize all agents in the system. MarsRL introduces agent-specific reward mechanisms to mitigate reward noise and employs pipeline-inspired training to enhance efficiency in handling long trajectories. Applied to Qwen3-30B-A3B-Thinking-2507, MarsRL improves AIME2025 accuracy from 86.5% to 93.3% and BeyondAIME from 64.9% to 73.8%, even surpassing Qwen3-235B-A22B-Thinking-2507. These findings highlight the potential of MarsRL to advance multi-agent reasoning systems and broaden their applicability across diverse reasoning tasks.\", \"url\": \"https://arxiv.org/abs/2511.11373\"}, {\"arxiv_id\": \"2505.03906\", \"title\": \"MARCO: Multi-Agent Code Optimization with Real-Time Knowledge\\n  Integration for High-Performance Computing\", \"abstract\": \"Large language models (LLMs) have transformed software development through\\ncode generation capabilities, yet their effectiveness for high-performance\\ncomputing (HPC) remains limited. HPC code requires specialized optimizations\\nfor parallelism, memory efficiency, and architecture-specific considerations\\nthat general-purpose LLMs often overlook. We present MARCO (Multi-Agent\\nReactive Code Optimizer), a novel framework that enhances LLM-generated code\\nfor HPC through a specialized multi-agent architecture. MARCO employs separate\\nagents for code generation and performance evaluation, connected by a feedback\\nloop that progressively refines optimizations. A key innovation is MARCO's\\nweb-search component that retrieves real-time optimization techniques from\\nrecent conference proceedings and research publications, bridging the knowledge\\ngap in pre-trained LLMs. Our extensive evaluation on the LeetCode 75 problem\\nset demonstrates that MARCO achieves a 14.6\\\\% average runtime reduction\\ncompared to Claude 3.5 Sonnet alone, while the integration of the web-search\\ncomponent yields a 30.9\\\\% performance improvement over the base MARCO system.\\nThese results highlight the potential of multi-agent systems to address the\\nspecialized requirements of high-performance code generation, offering a\\ncost-effective alternative to domain-specific model fine-tuning.\", \"url\": \"https://arxiv.org/abs/2505.03906\"}, {\"arxiv_id\": \"2604.02971\", \"title\": \"InfoSeeker: A Scalable Hierarchical Parallel Agent Framework for Web Information Seeking\", \"abstract\": \"Recent agentic search systems have made substantial progress by emphasising deep, multi-step reasoning. However, this focus often overlooks the challenges of wide-scale information synthesis, where agents must aggregate large volumes of heterogeneous evidence across many sources. As a result, most existing large language model agent systems face severe limitations in data-intensive settings, including context saturation, cascading error propagation, and high end-to-end latency. To address these challenges, we present \\\\framework, a hierarchical framework based on principle of near-decomposability, containing a strategic Host, multiple Managers and parallel Workers. By leveraging aggregation and reflection mechanisms at the Manager layer, our framework enforces strict context isolation to prevent saturation and error propagation. Simultaneously, the parallelism in worker layer accelerates the speed of overall task execution, mitigating the significant latency. Our evaluation on two complementary benchmarks demonstrates both efficiency ( 3-5 times speed-up) and effectiveness, achieving a 8.4% success rate on WideSearch-en and 52.9% accuracy on BrowseComp-zh. The code is released at https://github.com/agent-on-the-fly/InfoSeeker\", \"url\": \"https://arxiv.org/abs/2604.02971\"}, {\"arxiv_id\": \"2511.11332\", \"title\": \"UFO^3: Weaving the Digital Agent Galaxy\", \"abstract\": \"Large language model (LLM)-powered agents are transforming digital devices from passive tools into proactive intelligent collaborators. However, most existing frameworks remain confined to a single OS or device, making cross-device workflows brittle and largely manual. We present UFO^3, a system that unifies heterogeneous endpoints, desktops, servers, mobile devices, and edge, into a single orchestration fabric. UFO^3 models each user request as a mutable TaskConstellation: a distributed DAG of atomic subtasks (TaskStars) with explicit control and data dependencies (TaskStarLines). The TaskConstellation continuously evolves as results stream in from distributed devices, enabling asynchronous execution, adaptive recovery, and dynamic optimization. A Constellation Orchestrator} executes tasks safely and asynchronously while applying dynamic DAG updates, and the Agent Interaction Protocol (AIP) provides persistent, low-latency channels for reliable task dispatch and result streaming. These designs dissolve the traditional boundaries between devices and platforms, allowing agents to collaborate seamlessly and amplify their collective intelligence.\\n  We evaluate UFO^3 on NebulaBench, a benchmark of 55 cross-device tasks across 5 machines and 10 categories. UFO^3 achieves 83.3% subtask completion, 70.9% task success, exposes parallelism with an average width of 1.72, and reduces end-to-end latency by 31% relative to a sequential baseline. Fault-injection experiments demonstrate graceful degradation and recovery under transient and permanent agent failures. These results show that UFO^3 achieves accurate, efficient, and resilient task orchestration across heterogeneous devices, uniting isolated agents into a coherent, adaptive computing fabric that extends across the landscape of ubiquitous computing.\", \"url\": \"https://arxiv.org/abs/2511.11332\"}]}"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "function-call-5426931919900575978",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"content\":\"# Agent Parallelism\\n\\nThis document explores the concept of agent parallelism in the context of large language model (LLM) agents and multi-agent systems. It examines how parallelism is being leveraged to improve efficiency, scalability, and performance in various agentic tasks, from prompt learning to complex reasoning and information seeking.\\n\\n## Key Research Papers:\\n\",\"path\":\"notes/agent-parallelism.md\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "function-call-5426931919900575978",
+      "name": "write_file",
+      "content": "{\"status\": \"success\", \"path\": \"notes/agent-parallelism.md\"}"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "function-call-12479318482817348565",
+          "type": "function",
+          "function": {
+            "name": "edit_file",
+            "arguments": "{\"start_line\":5,\"operation\":\"append\",\"path\":\"notes/agent-parallelism.md\",\"content\":\"### [Combee: Scaling Prompt Learning for Self-Improving Language Model Agents](https://arxiv.org/abs/2604.04247)\\n\\nThis paper proposes Combee, a framework for scaling parallel prompt learning in self-improving LLM agents. It addresses the limitations of existing methods (like ACE or GEPA) that struggle with quality degradation in high-parallelism settings. Combee uses parallel scans and an augmented shuffle mechanism, along with a dynamic batch size controller, to achieve up to 17x speedup with comparable or better accuracy and equivalent cost. It enables efficient learning from large sets of agentic traces or parallel agent executions.\\n\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "function-call-12479318482817348565",
+      "name": "edit_file",
+      "content": "{\"status\": \"success\", \"path\": \"notes/agent-parallelism.md\", \"diff\": \"--- a/notes/agent-parallelism.md\\n+++ b/notes/agent-parallelism.md\\n@@ -3,3 +3,7 @@\\n This document explores the concept of agent parallelism in the context of large language model (LLM) agents and multi-agent systems. It examines how parallelism is being leveraged to improve efficiency, scalability, and performance in various agentic tasks, from prompt learning to complex reasoning and information seeking.\\n \\n ## Key Research Papers:\\n+### [Combee: Scaling Prompt Learning for Self-Improving Language Model Agents](https://arxiv.org/abs/2604.04247)\\n+\\n+This paper proposes Combee, a framework for scaling parallel prompt learning in self-improving LLM agents. It addresses the limitations of existing methods (like ACE or GEPA) that struggle with quality degradation in high-parallelism settings. Combee uses parallel scans and an augmented shuffle mechanism, along with a dynamic batch size controller, to achieve up to 17x speedup with comparable or better accuracy and equivalent cost. It enables efficient learning from large sets of agentic traces or parallel agent executions.\\n+\\n\"}"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "function-call-10142074639379762463",
+          "type": "function",
+          "function": {
+            "name": "edit_file",
+            "arguments": "{\"path\":\"notes/agent-parallelism.md\",\"start_line\":12,\"operation\":\"append\",\"content\":\"### [MarsRL: Advancing Multi-Agent Reasoning System via Reinforcement Learning with Agentic Pipeline Parallelism](https://arxiv.org/abs/2511.11373)\\n\\nThis paper introduces MarsRL, a reinforcement learning framework for multi-agent reasoning systems that employs agentic pipeline parallelism. It aims to optimize all agents (Solver, Verifier, Corrector) in the system jointly, especially for open-source models where critic and correction capabilities are often insufficient. MarsRL incorporates agent-specific reward mechanisms to reduce noise and uses pipeline-inspired training for efficient handling of long trajectories. The framework demonstrates significant improvements in reasoning accuracy on complex benchmarks.\\n\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "function-call-10142074639379762463",
+      "name": "edit_file",
+      "content": "{\"status\": \"success\", \"path\": \"notes/agent-parallelism.md\", \"diff\": \"--- a/notes/agent-parallelism.md\\n+++ b/notes/agent-parallelism.md\\n@@ -7,3 +7,7 @@\\n \\n This paper proposes Combee, a framework for scaling parallel prompt learning in self-improving LLM agents. It addresses the limitations of existing methods (like ACE or GEPA) that struggle with quality degradation in high-parallelism settings. Combee uses parallel scans and an augmented shuffle mechanism, along with a dynamic batch size controller, to achieve up to 17x speedup with comparable or better accuracy and equivalent cost. It enables efficient learning from large sets of agentic traces or parallel agent executions.\\n \\n+### [MarsRL: Advancing Multi-Agent Reasoning System via Reinforcement Learning with Agentic Pipeline Parallelism](https://arxiv.org/abs/2511.11373)\\n+\\n+This paper introduces MarsRL, a reinforcement learning framework for multi-agent reasoning systems that employs agentic pipeline parallelism. It aims to optimize all agents (Solver, Verifier, Corrector) in the system jointly, especially for open-source models where critic and correction capabilities are often insufficient. MarsRL incorporates agent-specific reward mechanisms to reduce noise and uses pipeline-inspired training for efficient handling of long trajectories. The framework demonstrates significant improvements in reasoning accuracy on complex benchmarks.\\n+\\n\"}"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "function-call-15147351612121971192",
+          "type": "function",
+          "function": {
+            "name": "edit_file",
+            "arguments": "{\"content\":\"### [MARCO: Multi-Agent Code Optimization with Real-Time Knowledge Integration for High-Performance Computing](https://arxiv.org/abs/2505.03906)\\n\\nMARCO (Multi-Agent Reactive Code Optimizer) is a framework designed to enhance LLM-generated code for High-Performance Computing (HPC) through a specialized multi-agent architecture. It uses separate agents for code generation and performance evaluation in a feedback loop. A key feature is its web-search component that retrieves real-time optimization techniques, bridging the knowledge gap in pre-trained LLMs. MARCO significantly reduces runtime compared to general-purpose LLMs, especially with the integrated web-search.\\n\\n\",\"start_line\":19,\"path\":\"notes/agent-parallelism.md\",\"operation\":\"append\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "function-call-15147351612121971192",
+      "name": "edit_file",
+      "content": "{\"status\": \"success\", \"path\": \"notes/agent-parallelism.md\", \"diff\": \"--- a/notes/agent-parallelism.md\\n+++ b/notes/agent-parallelism.md\\n@@ -11,3 +11,7 @@\\n \\n This paper introduces MarsRL, a reinforcement learning framework for multi-agent reasoning systems that employs agentic pipeline parallelism. It aims to optimize all agents (Solver, Verifier, Corrector) in the system jointly, especially for open-source models where critic and correction capabilities are often insufficient. MarsRL incorporates agent-specific reward mechanisms to reduce noise and uses pipeline-inspired training for efficient handling of long trajectories. The framework demonstrates significant improvements in reasoning accuracy on complex benchmarks.\\n \\n+### [MARCO: Multi-Agent Code Optimization with Real-Time Knowledge Integration for High-Performance Computing](https://arxiv.org/abs/2505.03906)\\n+\\n+MARCO (Multi-Agent Reactive Code Optimizer) is a framework designed to enhance LLM-generated code for High-Performance Computing (HPC) through a specialized multi-agent architecture. It uses separate agents for code generation and performance evaluation in a feedback loop. A key feature is its web-search component that retrieves real-time optimization techniques, bridging the knowledge gap in pre-trained LLMs. MARCO significantly reduces runtime compared to general-purpose LLMs, especially with the integrated web-search.\\n+\\n\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "API Error: Error code: 429 - [{'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 5, model: gemini-2.5-flash\\nPlease retry in 28.073532517s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '5'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '28s'}]}}]"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "4ba1caec",
+  "title": "Untitled",
+  "created_at": "2026-06-16T09:44:52.582204+00:00",
+  "updated_at": "2026-06-16T09:44:54.199491+00:00",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Research Desk, a helpful research assistant.\n\n## Project rules\n# Research Desk Rules\n\n## Citations\n- Include source URLs inline: [title](url)\n- For papers: cite as [title](https://arxiv.org/abs/{arxiv_id})\n- Prefer primary sources (papers, official docs) over blog posts\n\n## Papers (required tools)\n- Use `paper_search` for ML research and literature questions\n- Use `read_paper` with the arxiv_id from search results \u2014 do not guess IDs\n- If `read_paper` returns 404, fall back to `web_fetch` on arxiv.org/abs/...\n- Do not use web_search when paper_search is the right tool\n\n## Research notes\n- Save new content with `write_file` to `notes/`\n- Update existing notes with `read_file` then `edit_file` \u2014 do not rewrite whole files unnecessarily\n- Use `edit_file` operations: `append` for new sections, `replace` to revise, `delete` to remove stale parts\n- Keep edits inside `notes/` unless the user explicitly asks otherwise\n- Use lowercase hyphenated filenames: `notes/topic-name.md`\n\n## Web search\n- Use `web_search` before `web_fetch` for non-paper questions\n- Do not fetch more than 3 pages per question unless the user asks for depth\n\n## Tone\n- Be concise in chat; put detail in the note files\n"
+    },
+    {
+      "role": "user",
+      "content": "hello"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello! How can I help you today?\n"
+    }
+  ]
+}
